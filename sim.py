@@ -1,117 +1,185 @@
+import numpy as np
 import simpy
 import random
 import statistics
-import matplotlib.pyplot as plt
 
-#   Parameters
+# =========================
+# Parameters
+# =========================
+from matplotlib import pyplot as plt
+
 RANDOM_SEED = 42
-SIM_TIME = 480  # simulation time (8 hours)
-INTER_ARRIVAL_TIME = 2  # avg time between arrivals (minutes)
-SERVICE_TIME = (3, 8)  # range of service time in minutes
+Sim_Time = 720  # 12 hours
+No_Patients = 400   # Number of Patients for a day
+No_Doctors = 4   # Number of doctors available
+Register_counters = 2  # Number of counters for registration
+
+Registration_Time = (4, 6)  # Registration time per patient
+Service_Time = (10, 15)  # Doctor consultation time per patient
 
 
-# Customer Process
-def customer(env, name, bank, wait_times, service_times, queue_lengths, teller_busy_time):
+# Patient Process
+
+def patient(env, name, registration, doctors, data):
     arrival = env.now
-    with bank.request() as req:
+    data["arrivals"] += 1
+
+    # Registration
+    with registration.request() as req:
         yield req
-        wait = env.now - arrival
-        wait_times.append(wait)
-        queue_lengths.append(len(bank.queue))
+        reg_wait = env.now - arrival
+        data["reg_waits"].append(reg_wait)
+        reg_time = random.uniform(*Registration_Time)
+        data["reg_busy_time"] += reg_time
+        yield env.timeout(reg_time)
 
-        # Record teller busy start
-        start_service = env.now
-        service_time = random.uniform(*SERVICE_TIME)
-        service_times.append(service_time)
-        yield env.timeout(service_time)
-        teller_busy_time.append(service_time)
+    # Optional walking/waiting time
+    yield env.timeout(random.uniform(2, 5))
+
+    # Doctor consultation
+    with doctors.request() as req:
+        yield req
+        doc_wait = env.now - arrival
+        data["doctor_waits"].append(doc_wait)
+        doc_time = random.uniform(*Service_Time)
+        data["doctor_busy_time"] += doc_time
+        yield env.timeout(doc_time)
+
+    # Patient leaves
+    total_time = env.now - arrival
+    data["total_times"].append(total_time)
+    data["served"] += 1
 
 
-#  Customer setup
-def setup(env, num_tellers, inter_arrival, wait_times, service_times, queue_lengths, teller_busy_time):
-    bank = simpy.Resource(env, num_tellers)
-    i = 0
-    while True:
+# setup arrival process
+
+def setup(env, registration, doctors, num_patients, data):
+    # inter_arrival time
+    inter_arrival = Sim_Time / num_patients
+    for i in range(num_patients):
         yield env.timeout(random.expovariate(1.0 / inter_arrival))
-        i += 1
-        env.process(customer(env, f"Customer {i}", bank, wait_times, service_times, queue_lengths, teller_busy_time))
+        env.process(patient(env, f"Patient {i + 1}", registration, doctors, data))
 
 
-#  Run Simulation Function
-def run_simulation(num_tellers):
+# Simulation
+
+def sim(num_reg=Register_counters, num_docs=No_Doctors, num_patients=No_Patients):
     random.seed(RANDOM_SEED)
     env = simpy.Environment()
-    wait_times, service_times, queue_lengths, teller_busy_time = [], [], [], []
-    env.process(setup(env, num_tellers, INTER_ARRIVAL_TIME, wait_times, service_times, queue_lengths, teller_busy_time))
-    env.run(until=SIM_TIME)
+    registration = simpy.Resource(env, capacity=num_reg)
+    doctors = simpy.Resource(env, capacity=num_docs)
 
-    total_customers = len(wait_times)
-    avg_wait = statistics.mean(wait_times) if wait_times else 0
-    avg_service = statistics.mean(service_times) if service_times else 0
-    avg_queue = statistics.mean(queue_lengths) if queue_lengths else 0
-    throughput = total_customers / (SIM_TIME / 60)  # customers per hour
-    utilization = (sum(teller_busy_time) / (SIM_TIME * num_tellers)) * 100
+    data = {
+        "arrivals": 0,
+        "served": 0,
+        "reg_waits": [],
+        "doctor_waits": [],
+        "total_times": [],
+        "reg_busy_time": 0,
+        "doctor_busy_time": 0
+    }
+
+    env.process(setup(env, registration, doctors, num_patients, data))
+    env.run(until=Sim_Time + 180)  # extra time for late patients
+
+    # Metrics
+    avg_reg_wait = statistics.mean(data["reg_waits"]) if data["reg_waits"] else 0
+    avg_doc_wait = statistics.mean(data["doctor_waits"]) if data["doctor_waits"] else 0
+    avg_total_time = statistics.mean(data["total_times"]) if data["total_times"] else 0
+
+    throughput = (data["served"] / Sim_Time) * 60
+    reg_util = (data["reg_busy_time"] / (num_reg * Sim_Time)) * 100
+    doc_util = (data["doctor_busy_time"] / (num_docs * Sim_Time)) * 100
 
     return {
-        "tellers": num_tellers,
-        "avg_wait": avg_wait,
-        "avg_service": avg_service,
-        "avg_queue": avg_queue,
+        "arrived": data["arrivals"],
+        "served": data["served"],
+        "avg_reg_wait": avg_reg_wait,
+        "avg_doc_wait": avg_doc_wait,
+        "avg_total_time": avg_total_time,
         "throughput": throughput,
-        "utilization": utilization,
-        "total_customers": total_customers
+        "reg_util": reg_util,
+        "doc_util": doc_util
     }
 
 
-#  Run Experiments
-teller_configs = [2, 3, 4, 5]
-results = [run_simulation(t) for t in teller_configs]
+# Scenarios
 
-# Extract Data for Visualization
-tellers = [r["tellers"] for r in results]
-avg_waits = [r["avg_wait"] for r in results]
-throughputs = [r["throughput"] for r in results]
-utilizations = [r["utilization"] for r in results]
-avg_queues = [r["avg_queue"] for r in results]
+scenarios = {
+    "Main (2 reg, 4 doctors)": dict(num_reg=2, num_docs=4, num_patients=400),
+    "Add Doctor & Counter (3 reg, 5 doctors)": dict(num_reg=3, num_docs=5, num_patients=400),
+    "Busy Day (4 reg, 7 doctors, 600 pts)": dict(num_reg=4, num_docs=7, num_patients=600)
+}
 
-#   Waiting Time
+print("=" * 60)
+print("MEDICAL CLINIC SIMULATION - Performance Summary")
+print("=" * 60)
+
+results = {}
+for name, params in scenarios.items():
+    result = sim(**params)
+    results[name] = result
+    print(f"\nScenario: {name}")
+    print(f"{'-' * 60}")
+    print(f"Patients Arrived:        {result['arrived']}")
+    print(f"Patients Served:         {result['served']}")
+    print(f"Throughput:              {result['throughput']:.1f} patients/hour")
+    print(f"Avg Registration Wait:   {result['avg_reg_wait']:.2f} minutes")
+    print(f"Avg Doctor Wait:         {result['avg_doc_wait']:.2f} minutes")
+    print(f"Avg Total Time:          {result['avg_total_time']:.2f} minutes")
+    print(f"Registration Utilization:{result['reg_util']:.1f}%")
+    print(f"Doctor Utilization:      {result['doc_util']:.1f}%")
+
+# labels
+labels = list(results.keys())
+x = np.arange(len(labels))
+width = 0.25
+
+# patient load
+max_patients = max(params["num_patients"] for params in scenarios.values())
+patient_load = [params["num_patients"] / max_patients * 100 for params in scenarios.values()]
+
+# 1: Waiting Time Bar Chart
+total_waits = [results[l]["avg_total_time"] for l in labels]
+reg_waits = [results[l]["avg_reg_wait"] for l in labels]
+doc_waits = [results[l]["avg_doc_wait"] for l in labels]
+
+plt.figure(figsize=(10, 5))
+plt.bar(x - width, total_waits, width, label="Total Wait", color="blue")
+plt.bar(x, reg_waits, width, label="Registration Wait", color="orange")
+plt.bar(x + width, doc_waits, width, label="Doctor Wait", color="green")
+plt.xticks(x, labels, rotation=15)
+plt.ylabel("Time (minutes)")
+plt.title("Waiting Times per Scenario")
+plt.legend()
+plt.grid(axis='y')
+plt.tight_layout()
+plt.show()
+
+# 2: Resource Utilization Bar Chart
+reg_util = [results[l]["reg_util"] for l in labels]
+doc_util = [results[l]["doc_util"] for l in labels]
+
+plt.figure(figsize=(10, 5))
+plt.bar(x - width, patient_load, width, label="Patient Load (%)", color="green")
+plt.bar(x, reg_util, width, label="Registration Utilization (%)", color="blue")
+plt.bar(x + width, doc_util, width, label="Doctor Utilization (%)", color="orange")
+plt.xticks(x, labels, rotation=15)
+plt.ylabel("Utilization / Patient Load (%)")
+plt.title("Resource Utilization per Scenario")
+plt.legend()
+plt.grid(axis='y')
+plt.tight_layout()
+plt.show()
+
+# 3: Throughput Line Chart
+throughputs = [results[l]["throughput"] for l in labels]
+
 plt.figure(figsize=(8, 5))
-plt.plot(tellers, avg_waits, marker='o', color='blue')
-plt.title("Average Waiting Time vs Number of Tellers")
-plt.xlabel("Number of Tellers")
-plt.ylabel("Average Waiting Time (minutes)")
+plt.plot(labels, throughputs, marker='o', color="green")
+plt.title("Throughput per Scenario (patients/hour)")
+plt.xlabel("Scenario")
+plt.ylabel("Throughput")
 plt.grid(True)
+plt.tight_layout()
 plt.show()
-
-#  Teller Utilization
-plt.figure(figsize=(8, 5))
-plt.bar(tellers, utilizations, color='orange')
-plt.title("Teller Utilization (%) vs Number of Tellers")
-plt.xlabel("Number of Tellers")
-plt.ylabel("Utilization (%)")
-plt.grid(True, axis='y')
-plt.show()
-
-#  Throughput
-plt.figure(figsize=(8, 5))
-plt.plot(tellers, throughputs, marker='s', color='green')
-plt.title("Throughput (Customers/hour) vs Number of Tellers")
-plt.xlabel("Number of Tellers")
-plt.ylabel("Throughput (customers/hour)")
-plt.grid(True)
-plt.show()
-
-# Detailed Performance Summary
-print("="*60)
-print("=== PERFORMANCE SUMMARY FOR ALL SCENARIOS ===")
-print("="*60)
-print(f"{'Tellers':<10} {'Avg Wait':<12} {'Avg Queue':<12} {'Utilization':<12} {'Throughput':<12}")
-print("-"*60)
-
-for r in results:
-    print(f"{r['tellers']:<10} "
-          f"{r['avg_wait']:<12.2f} "
-          f"{r['avg_queue']:<12.2f} "
-          f"{r['utilization']:<12.1f} "
-          f"{r['throughput']:<12.2f}")
-print("="*60)
