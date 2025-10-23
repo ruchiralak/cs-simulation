@@ -3,14 +3,14 @@ import random
 import statistics
 import matplotlib.pyplot as plt
 
-# --- Simulation Parameters ---
+#   Parameters
 RANDOM_SEED = 42
-SIM_TIME = 480  # total simulation time in minutes (8 hours)
+SIM_TIME = 480  # simulation time (8 hours)
 INTER_ARRIVAL_TIME = 2  # avg time between arrivals (minutes)
 SERVICE_TIME = (3, 8)  # range of service time in minutes
 
 
-# --- Customer Process ---
+# Customer Process
 def customer(env, name, bank, wait_times, service_times, queue_lengths, teller_busy_time):
     arrival = env.now
     with bank.request() as req:
@@ -27,7 +27,7 @@ def customer(env, name, bank, wait_times, service_times, queue_lengths, teller_b
         teller_busy_time.append(service_time)
 
 
-# --- Customer Generator ---
+#  Customer setup
 def setup(env, num_tellers, inter_arrival, wait_times, service_times, queue_lengths, teller_busy_time):
     bank = simpy.Resource(env, num_tellers)
     i = 0
@@ -37,7 +37,7 @@ def setup(env, num_tellers, inter_arrival, wait_times, service_times, queue_leng
         env.process(customer(env, f"Customer {i}", bank, wait_times, service_times, queue_lengths, teller_busy_time))
 
 
-# --- Run Simulation Function ---
+#  Run Simulation Function
 def run_simulation(num_tellers):
     random.seed(RANDOM_SEED)
     env = simpy.Environment()
@@ -63,18 +63,18 @@ def run_simulation(num_tellers):
     }
 
 
-# --- Run Experiments ---
+#  Run Experiments
 teller_configs = [2, 3, 4, 5]
 results = [run_simulation(t) for t in teller_configs]
 
-# --- Extract Data for Visualization ---
+# Extract Data for Visualization
 tellers = [r["tellers"] for r in results]
 avg_waits = [r["avg_wait"] for r in results]
 throughputs = [r["throughput"] for r in results]
 utilizations = [r["utilization"] for r in results]
 avg_queues = [r["avg_queue"] for r in results]
 
-# --- Visualization 1: Waiting Time ---
+#   Waiting Time
 plt.figure(figsize=(8, 5))
 plt.plot(tellers, avg_waits, marker='o', color='blue')
 plt.title("Average Waiting Time vs Number of Tellers")
@@ -83,7 +83,7 @@ plt.ylabel("Average Waiting Time (minutes)")
 plt.grid(True)
 plt.show()
 
-# --- Visualization 2: Teller Utilization ---
+#  Teller Utilization
 plt.figure(figsize=(8, 5))
 plt.bar(tellers, utilizations, color='orange')
 plt.title("Teller Utilization (%) vs Number of Tellers")
@@ -92,7 +92,7 @@ plt.ylabel("Utilization (%)")
 plt.grid(True, axis='y')
 plt.show()
 
-# --- Visualization 3: Throughput ---
+#  Throughput
 plt.figure(figsize=(8, 5))
 plt.plot(tellers, throughputs, marker='s', color='green')
 plt.title("Throughput (Customers/hour) vs Number of Tellers")
@@ -101,7 +101,7 @@ plt.ylabel("Throughput (customers/hour)")
 plt.grid(True)
 plt.show()
 
-# --- Detailed Performance Summary ---
+# Detailed Performance Summary
 print("="*60)
 print("=== PERFORMANCE SUMMARY FOR ALL SCENARIOS ===")
 print("="*60)
