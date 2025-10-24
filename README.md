@@ -62,7 +62,7 @@ Installed required libraries
 
     Registration_Time = (4, 6)  # Registration time per patient
 
-    Service_Time = (10, 15)  # Doctor consultation time per patient
+    Service_Time = (5, 10)  # Doctor consultation time per patient
 
 Modify current scenario or add a scenario :
 
