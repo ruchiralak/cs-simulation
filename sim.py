@@ -3,19 +3,18 @@ import simpy
 import random
 import statistics
 
-# =========================
 # Parameters
-# =========================
+
 from matplotlib import pyplot as plt
 
 RANDOM_SEED = 42
 Sim_Time = 720  # 12 hours
-No_Patients = 400   # Number of Patients for a day
-No_Doctors = 4   # Number of doctors available
+No_Patients = 400  # Number of Patients for a day
+No_Doctors = 4  # Number of doctors available
 Register_counters = 2  # Number of counters for registration
 
 Registration_Time = (4, 6)  # Registration time per patient
-Service_Time = (10, 15)  # Doctor consultation time per patient
+Service_Time = (5, 10)  # Doctor consultation time per patient
 
 
 # Patient Process
@@ -41,9 +40,14 @@ def patient(env, name, registration, doctors, data):
         yield req
         doc_wait = env.now - arrival
         data["doctor_waits"].append(doc_wait)
+
+        start_time = env.now
         doc_time = random.uniform(*Service_Time)
-        data["doctor_busy_time"] += doc_time
         yield env.timeout(doc_time)
+        end_time = env.now
+
+        # adding the actual service time
+        data["doctor_busy_time"] += end_time - start_time
 
     # Patient leaves
     total_time = env.now - arrival
@@ -66,9 +70,11 @@ def setup(env, registration, doctors, num_patients, data):
 def sim(num_reg=Register_counters, num_docs=No_Doctors, num_patients=No_Patients):
     random.seed(RANDOM_SEED)
     env = simpy.Environment()
+    # resources
     registration = simpy.Resource(env, capacity=num_reg)
     doctors = simpy.Resource(env, capacity=num_docs)
 
+    # store statistic in dictionary
     data = {
         "arrivals": 0,
         "served": 0,
@@ -80,7 +86,7 @@ def sim(num_reg=Register_counters, num_docs=No_Doctors, num_patients=No_Patients
     }
 
     env.process(setup(env, registration, doctors, num_patients, data))
-    env.run(until=Sim_Time + 180)  # extra time for late patients
+    env.run(until=Sim_Time)  # simulation time
 
     # Metrics
     avg_reg_wait = statistics.mean(data["reg_waits"]) if data["reg_waits"] else 0
